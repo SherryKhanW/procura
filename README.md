@@ -8,7 +8,7 @@ Workflow: purchase request → approval → purchase order → delivery → invo
 
 Step 1: React/Vite client, Express API, MariaDB connector, database validation command, and clean SQL installation files. Login, permissions, admin pages, and workflow screens are upcoming work; this scaffold does not authenticate users or expose business records.
 
-The backend uses parameterized SQL rather than an ORM so the database implementation stays visible. The existing 16-table design and Milestone 3 procedure/trigger are retained. The shared database is now provisioned on alwaysdata; all 16 tables, seed data, the procedure and trigger are installed. Backend credentials and runtime grants are still pending. See [the hosted setup checkpoint](docs/shared-database.md) for verification results and remaining steps.
+The backend uses parameterized SQL rather than an ORM so the database implementation stays visible. The existing 16-table design and Milestone 3 procedure/trigger are retained. The shared database is provisioned on alwaysdata; all 16 tables, seed data, the procedure and trigger are installed, and restricted runtime grants are applied. The local app password and the first backend connection test are still pending. See [the hosted setup checkpoint](docs/shared-database.md) for verification results and remaining steps.
 
 ## Local application setup
 
@@ -59,7 +59,7 @@ After configuring `server/.env`:
 npm run db:check
 ```
 
-This read-only command connects to the configured database and verifies visibility of all 16 expected tables. It does not create tables, import data, verify column definitions, or validate the procedure/trigger behavior. It exits nonzero when configuration, connection, or table checks fail.
+This read-only command verifies TLS when enabled, read access to all 16 tables, visibility of the approval procedure, and that the logged-in account has no direct schema-administration or grant-delegation privileges. It does not print credentials or authentication hashes. It does not create tables, import data, verify column definitions, validate column-level access policies, or execute the procedure/trigger. It exits nonzero when these connection/access checks fail.
 
 ## Production build
 

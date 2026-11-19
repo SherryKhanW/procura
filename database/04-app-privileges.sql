@@ -6,7 +6,9 @@
 -- Do not re-save this user's panel permissions afterward: alwaysdata may
 -- replace SQL grants with the panel's all/read-only/no-rights selection.
 
-GRANT SELECT ON procura_db.* TO 'procura_app'@'%';
+-- Database-level grants treat '_' as a wildcard unless escaped.
+-- Escape it to target exactly procura_db, matching the owner's grant scope.
+GRANT SELECT ON `procura\_db`.* TO 'procura_app'@'%';
 
 GRANT INSERT, UPDATE ON procura_db.Department TO 'procura_app'@'%';
 GRANT INSERT, UPDATE ON procura_db.Employee TO 'procura_app'@'%';

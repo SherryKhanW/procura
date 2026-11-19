@@ -49,23 +49,29 @@ seed, excluding the additional manual demonstration purchases in COMMANDS.sql.
   approval records, and Payment still contained 10 rows.
 - Setup-account schema privileges include grantable CREATE ROUTINE, TRIGGER,
   EXECUTE, SELECT, INSERT and UPDATE privileges, among others.
+- `procura_app` was created with SSL required and initially no database rights.
+- All 20 GRANT statements were applied successfully through the setup account.
+  The database-level SELECT grant escapes the underscore in `procura_db`, so
+  it names exactly this database rather than a wildcard pattern.
+- The setup account cannot inspect another user's SHOW GRANTS on this shared
+  host (access to the `mysql` system database is denied). The runtime account
+  will verify its own grants through `npm run db:check` after its password is
+  entered privately in `server/.env`.
 
 Successful manager approval/payment and concurrent-user behavior still need
 application-level integration tests. This checkpoint does not claim them.
 
 ## Finish the connection
 
-1. In alwaysdata's MySQL Users screen, create `procura_app`, choose a private
-   password, require SSL, and initially choose **no rights** on `procura_db`.
-2. Confirm the actual host qualifier for that account, then run
-   `database/04-app-privileges.sql` as the setup user. It grants selected data
-   operations and procedure execution, without schema administration or grant
-   delegation. This script has not yet been executed at this checkpoint.
-3. Copy `server/.env.example` to `server/.env` if it does not already exist,
-   and set `DB_PASSWORD` privately. Do not commit credentials.
-4. Run `npm run db:check` with the runtime account. This has not yet been run
+1. Account creation and the SQL privileges in `database/04-app-privileges.sql`
+   are complete. Do not create the account or re-save panel permissions again.
+2. Copy `server/.env.example` to `server/.env` if it does not already exist,
+   and set `DB_PASSWORD` privately. The working copy has been prepared with
+   host, port, database, username and TLS settings; its password is still blank.
+   Do not commit credentials.
+3. Run `npm run db:check` with the runtime account. This has not yet been run
    successfully against the hosted service because credentials are pending.
-5. Verify that SELECT works and schema-altering operations are denied to the
+4. Verify that SELECT works and schema-altering operations are denied to the
    runtime account, then proceed to password-backed application login.
 
 Do not re-save panel permissions after applying custom SQL grants: alwaysdata
