@@ -67,10 +67,12 @@ application-level integration tests. This checkpoint does not claim them.
    are complete. Do not create the account or re-save panel permissions again.
 2. Copy `server/.env.example` to `server/.env` if it does not already exist,
    and set `DB_PASSWORD` privately. The working copy has been prepared with
-   host, port, database, username and TLS settings; its password is still blank.
+   host, port, database, username and TLS settings. Each developer must supply
+   the runtime account password in their own ignored environment file.
    Do not commit credentials.
 3. Run `npm run db:check` with the runtime account. This has not yet been run
-   successfully against the hosted service because credentials are pending.
+   successfully against the hosted service. The diagnostic now uses one direct
+   connection to show the original DNS, network, TLS, or authentication error.
 4. Verify that SELECT works and schema-altering operations are denied to the
    runtime account, then proceed to password-backed application login.
 

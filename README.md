@@ -61,6 +61,8 @@ npm run db:check
 
 This read-only command verifies TLS when enabled, read access to all 16 tables, visibility of the approval procedure, and that the logged-in account has no direct schema-administration or grant-delegation privileges. It does not print credentials or authentication hashes. It does not create tables, import data, verify column definitions, validate column-level access policies, or execute the procedure/trigger. It exits nonzero when these connection/access checks fail.
 
+The check uses one direct connection so DNS, network, TLS, and authentication failures retain their original error codes. `ENOTFOUND` means the hostname could not be resolved and authentication has not been attempted; `ER_ACCESS_DENIED_ERROR` means authentication was rejected. Follow the displayed hint before changing credentials. Keep `DB_SSL=true` for the hosted database.
+
 ## Production build
 
 ```sh
