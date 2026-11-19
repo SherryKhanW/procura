@@ -67,13 +67,5 @@ export function createAuthRepository(pool) {
         connection.release();
       }
     },
-    async listUsers() {
-      return pool.query(`SELECT e.EmployeeID AS employeeId, e.FirstName AS firstName,
-        e.LastName AS lastName, e.Email AS email, e.Role AS role,
-        d.DepartmentName AS departmentName, COALESCE(l.IsActive, FALSE) AS isActive,
-        (l.PasswordHash IS NOT NULL) AS passwordConfigured
-        FROM Employee e JOIN Department d ON d.DepartmentID = e.DepartmentID
-        LEFT JOIN Login l ON l.EmployeeID = e.EmployeeID ORDER BY e.EmployeeID`);
-    },
   };
 }

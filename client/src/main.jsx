@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
+import { Employees } from './admin/Employees.jsx';
+import { Departments } from './admin/Departments.jsx';
 import './styles.css';
 
 function Brand() {
@@ -49,27 +51,6 @@ const modules = [
   { title: 'Invoices & payments', permission: 'invoices:manage', number: '06', text: 'Match invoices to orders and deliveries before payment.' },
 ];
 
-function TeamAccess({ onExpired }) {
-  const [users, setUsers] = useState(null);
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController(); setError('');
-    api('/admin/users', { signal: controller.signal }).then(data => setUsers(data.users)).catch(failure => {
-      if (failure.name === 'AbortError') return;
-      if (failure.status === 401) onExpired(); else setError(failure.message);
-    });
-    return () => controller.abort();
-  }, [attempt, onExpired]);
-  return <section className="panel"><div className="panel-heading"><div><p className="eyebrow">ADMINISTRATION</p><h2>Team access</h2></div><span className="tag">Admin only</span></div>
-    <p className="muted">Employee roles and sign-in access for your shared workspace.</p>
-    {error ? <div role="alert"><p className="error">{error}</p><button onClick={() => setAttempt(value => value + 1)}>Retry</button></div> : !users ? <p role="status">Loading your team…</p> : <div className="table-scroll"><table>
-      <thead><tr><th>Employee</th><th>Department</th><th>Role</th><th>Sign-in access</th></tr></thead>
-      <tbody>{users.map(person => <tr key={person.employeeId}><td><strong>{person.firstName} {person.lastName}</strong><small>{person.email}</small></td><td>{person.departmentName}</td><td><span className="role">{person.role}</span></td><td>{!person.isActive ? 'Inactive' : person.passwordConfigured ? 'Ready' : 'Password needed'}</td></tr>)}</tbody>
-    </table></div>}
-  </section>;
-}
-
 function PasswordForm({ onChanged, onExpired }) {
   const [currentPassword, setCurrent] = useState('');
   const [newPassword, setNew] = useState('');
@@ -95,20 +76,19 @@ function PasswordForm({ onChanged, onExpired }) {
   </section>;
 }
 
-function Workspace({ user, onSignedOut }) {
+function Workspace({ user, onSignedOut, onUserChanged }) {
   const [page, setPage] = useState('overview');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const can = permission => user.permissions.includes(permission);
   const visibleModules = modules.filter(module => can(module.permission));
   const expired = React.useCallback(() => onSignedOut('Your session ended. Please sign in again.'), [onSignedOut]);
+  const refreshIdentity = React.useCallback(() => api('/auth/me').then(({ user: current }) => onUserChanged(current))
+    .catch(failure => { if (failure.status === 401) expired(); }), [onUserChanged, expired]);
   useEffect(() => {
-    const refresh = () => api('/auth/me').then(({ user: current }) => {
-      if (JSON.stringify(current) !== JSON.stringify(user)) window.location.reload();
-    }).catch(failure => { if (failure.status === 401) expired(); });
-    const timer = setInterval(refresh, 60_000);
+    const timer = setInterval(refreshIdentity, 60_000);
     return () => clearInterval(timer);
-  }, [user, expired]);
+  }, [refreshIdentity]);
   async function logout() {
     setBusy(true); setError('');
     try { await api('/auth/logout', { method: 'POST' }); onSignedOut('You have signed out.'); }
@@ -117,7 +97,8 @@ function Workspace({ user, onSignedOut }) {
   }
   return <div className="workspace-layout"><aside className="sidebar"><Brand /><p className="nav-label">WORKSPACE</p><nav aria-label="Workspace navigation">
     <button className={page === 'overview' ? 'nav-active' : ''} onClick={() => setPage('overview')}>Overview</button>
-    {can('users:read') && <button className={page === 'team' ? 'nav-active' : ''} onClick={() => setPage('team')}>Team access</button>}
+    {can('employees:manage') && <button className={page === 'team' ? 'nav-active' : ''} onClick={() => setPage('team')}>Employees & access</button>}
+    {can('departments:manage') && <button className={page === 'departments' ? 'nav-active' : ''} onClick={() => setPage('departments')}>Departments</button>}
     <button className={page === 'account' ? 'nav-active' : ''} onClick={() => setPage('account')}>Your account</button>
     </nav><div className="sidebar-bottom"><span className="avatar">{user.firstName[0]}{user.lastName[0]}</span><div><strong>{user.firstName} {user.lastName}</strong><small>{user.role}</small></div></div>
   </aside><div className="workspace-main"><header className="workspace-header"><span>{user.departmentName}</span><button disabled={busy} onClick={logout}>{busy ? 'Signing out…' : 'Sign out'}</button></header>
@@ -128,7 +109,8 @@ function Workspace({ user, onSignedOut }) {
         <div className="module-grid">{visibleModules.map(module => <article className="module-card" key={module.title}><div className="module-top"><span className="module-number">{module.number}</span><span className="coming-soon">Coming next</span></div><h3>{module.title}</h3><p>{module.text}</p></article>)}</div>
         <p className="workspace-note">Your account is ready. Procurement modules will become available as your team completes them.</p>
       </>}
-      {page === 'team' && can('users:read') && <TeamAccess onExpired={expired} />}
+      {page === 'team' && can('employees:manage') && <Employees user={user} onExpired={expired} onIdentityChanged={refreshIdentity} />}
+      {page === 'departments' && can('departments:manage') && <Departments onExpired={expired} />}
       {page === 'account' && <PasswordForm onExpired={expired} onChanged={() => onSignedOut('Password updated. Sign in with your new password.')} />}
     </main><footer>Procura · Shared procurement workspace</footer>
   </div></div>;
@@ -150,7 +132,7 @@ function App() {
   const signedOut = React.useCallback(message => { setUser(null); setNotice(message); }, []);
   if (loading) return <main className="loading"><Brand /><p role="status">Opening your workspace…</p></main>;
   if (error) return <main className="loading"><Brand /><h1>We couldn’t open your workspace.</h1><p className="error" role="alert">{error}</p><button className="primary" onClick={() => setAttempt(value => value + 1)}>Try again</button></main>;
-  return user ? <Workspace user={user} onSignedOut={signedOut} /> : <SignIn onSignIn={setUser} notice={notice} />;
+  return user ? <Workspace user={user} onSignedOut={signedOut} onUserChanged={setUser} /> : <SignIn onSignIn={setUser} notice={notice} />;
 }
 
 createRoot(document.getElementById('root')).render(<React.StrictMode><App /></React.StrictMode>);

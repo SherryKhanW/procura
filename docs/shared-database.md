@@ -71,12 +71,13 @@ application-level integration tests. This checkpoint does not claim them.
    host, port, database, username and TLS settings. Each developer must supply
    the runtime account password in their own ignored environment file.
    Do not commit credentials.
-3. The pre-authentication database check has passed. Import the new
-   `database/05-auth.sql` as the setup account in phpMyAdmin's selected
-   `procura_db`, then rerun `npm run db:check` for the added session table and
-   password column. This migration has not yet been run on the hosted service.
-4. Follow [password setup and application login](authentication.md), beginning
-   with `npm run auth:set-password` for `sofia.garcia@procura.co`.
+3. The user imported `database/05-auth.sql` and confirmed the updated
+   `npm run db:check` passed: the session table and password column are readable
+   over verified TLS. The original business tables and approval routine remain
+   accessible with the restricted runtime account.
+4. The user provisioned `sofia.garcia@procura.co` and confirmed successful Admin
+   login. The next Admin management checkpoint uses the existing tables/grants;
+   see [Admin management and pending live checks](admin-management.md).
 
 Do not re-save panel permissions after applying custom SQL grants: alwaysdata
 can reset those grants to its panel selection. Manage later grants through SQL.

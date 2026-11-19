@@ -18,7 +18,7 @@ operational table, `Login_Session`, for shared sessions. It starts empty.
    the existing Admin employee first. Enter and confirm an application password
    of 12–128 characters. Password input is hidden and never enters shell history.
 6. Run `npm run dev`, open **http://127.0.0.1:5173**, and sign in with that email
-   and the application password you just chose. Team access lists the current
+   and the application password you just chose. Employees & access lists the
    employees, roles, activation, and whether a password is configured.
 7. Repeat `npm run auth:set-password` for any other existing employee who needs
    to sign in. Every account gets its own password. There is no public signup.
@@ -29,9 +29,10 @@ sessions for that account atomically. It does not change a MariaDB user's
 password. Whoever holds the backend database credentials can provision app
 passwords; keep those credentials with authorized project developers.
 
-The migration has not yet been applied to the hosted service at this commit.
-The user confirmed the pre-migration database check passed over verified TLS.
-Do not report hosted authentication complete until the steps above succeed.
+The user confirmed the hosted migration, verified-TLS database check, successful
+Admin password provisioning, and successful Admin login. Additional multi-user,
+password-change and new Admin write flows still need live checks. Admins can now
+provision other employees through [Employees & access](admin-management.md).
 
 ## Accounts retained from Milestone 3
 
@@ -48,9 +49,9 @@ Other seeded employees also work after their individual password is set.
 An active Login record, configured password, and recognized role are required.
 Admin is not a universal business-role override. In particular, only Manager
 has approval permission, matching `sp_decide_purchase_request`. This checkpoint
-implements authentication, account password changes, and read-only team access;
-the permissions for upcoming procurement/admin CRUD modules are a handoff
-contract, not a claim those screens or endpoints have been implemented.
+implements authentication, account password changes, and Admin employee and
+department management. Procurement permissions remain a handoff contract for
+the upcoming owners' workflow screens and endpoints.
 
 ## API contract
 
@@ -61,7 +62,10 @@ contract, not a claim those screens or endpoints have been implemented.
 | GET | `/api/auth/me` | Current authenticated user including server-derived permissions |
 | POST | `/api/auth/logout` | Revoke presented session and clear cookie; idempotent |
 | POST | `/api/auth/password` | Current password + new password; revoke all own sessions |
-| GET | `/api/admin/users` | Admin's `users:read` permission; no password hashes |
+| GET | `/api/admin/users` | Admin's `users:read` permission; search/filters, no password hashes |
+
+Employee/password and department write endpoints are documented in the
+[Admin management guide](admin-management.md).
 
 Write calls require `X-Procura-Request: 1`. The frontend API helper supplies it.
 Any supplied `Origin` must match `APP_ORIGIN`; the API grants no cross-origin
@@ -129,7 +133,8 @@ checks the production frontend bundle.
 
 After migration and provisioning, verify through the running app:
 
-1. Admin signs in, refreshes, and opens Team access.
+1. Admin signs in, refreshes, and opens Employees & access (confirmed by user
+   for the previous read-only screen; verify the expanded forms separately).
 2. A separately provisioned Employee in a private browser window can sign in
    while Admin remains signed in. Employee's request to `/api/admin/users`
    must return 403; anonymous requests return 401.

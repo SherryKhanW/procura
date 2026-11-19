@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readAppConfig } from './config.js';
 import { createAuth, protectWrites } from './auth/routes.js';
-import { requirePermission } from './auth/permissions.js';
+import { createAdminRouter } from './admin/routes.js';
+import { AdminError } from './admin/validation.js';
 
 export function createApp({ repository, config = readAppConfig() } = {}) {
   if (!repository) throw new Error('An authentication repository is required.');
@@ -23,9 +24,7 @@ export function createApp({ repository, config = readAppConfig() } = {}) {
   app.use('/api/auth', auth.router);
   // All future business endpoints belong below this authentication guard.
   app.use('/api', auth.requireAuth);
-  app.get('/api/admin/users', requirePermission('users:read'), async (_req, res) => {
-    res.json({ users: await repository.listUsers() });
-  });
+  app.use('/api/admin', createAdminRouter(repository));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }));
   const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
   if (existsSync(clientDist)) {
@@ -33,11 +32,12 @@ export function createApp({ repository, config = readAppConfig() } = {}) {
     app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: clientDist }));
   }
   app.use((error, _req, res, _next) => {
+    if (error instanceof AdminError) return res.status(error.status).json({ error: error.message });
     const badJson = error.type === 'entity.parse.failed';
     const tooLarge = error.type === 'entity.too.large';
     const databaseError = Boolean(error.sqlState || error.errno || ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(error.code));
     // Never expose SQL, account details, driver messages, hashes, or passwords.
-    res.status(badJson ? 400 : tooLarge ? 413 : databaseError ? 503 : 500).json({ error: badJson ? 'Invalid JSON' : tooLarge ? 'Request too large' : databaseError ? 'The sign-in service is unavailable. Please try again later.' : 'Unexpected server error' });
+    res.status(badJson ? 400 : tooLarge ? 413 : databaseError ? 503 : 500).json({ error: badJson ? 'Invalid JSON' : tooLarge ? 'Request too large' : databaseError ? 'The database service is unavailable. Please try again later.' : 'Unexpected server error' });
   });
   return app;
 }

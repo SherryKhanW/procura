@@ -90,3 +90,30 @@ td strong { font-size: .81rem; font-weight: 600; }
 .loading > .brand { margin-bottom: 30px; }
 @media (max-width: 900px) { .login-story { padding: 36px 8%; } .login-main { padding: 36px; } .journey { gap: 6px; font-size: .68rem; } .journey span { padding: 6px; } .sidebar { width: 195px; padding: 30px 16px 20px; } .workspace-content { padding: 28px; } .workspace-header { padding: 0 28px; } .identity-detail { min-width: 120px; } }
 @media (max-width: 640px) { .login-layout { grid-template-columns: 1fr; } .login-story { padding: 24px; } .story-copy { padding: 28px 0 12px; } .story-copy h1 { font-size: 2.4rem; } .story-copy > p:not(.eyebrow) { font-size: .9rem; max-width: 340px; } .journey, .story-footer { display: none; } .login-main { padding: 0 24px; } .login-card { padding: 32px 0; } .login-card h2 { font-size: 1.75rem; } .workspace-layout { flex-direction: column; } .sidebar { width: 100%; border-right: 0; border-bottom: 1px solid #e2e8e9; padding: 20px; } .sidebar .brand { margin-bottom: 20px; } .nav-label, .sidebar-bottom { display: none; } nav { flex-direction: row; flex-wrap: wrap; gap: 5px; } nav button { padding: 10px 12px; font-size: .8rem; } .workspace-header { height: 64px; padding: 0 20px; } .workspace-content { padding: 24px 20px; } .identity-card { align-items: flex-start; flex-direction: column; padding: 22px; gap: 22px; } .identity-detail { border: 0; padding: 0; } .identity-detail span { margin-bottom: 6px; } .module-grid { grid-template-columns: 1fr; } .panel { padding: 20px; } .workspace-main > footer { padding: 22px 20px; } }
+select { width: 100%; font: inherit; color: #203c37; background: white; padding: 12px 10px; border: 1px solid #ccd7d8; border-radius: 8px; min-height: 47px; margin-bottom: 22px; }
+select:focus { outline: 2px solid #5ba58f; outline-offset: 2px; }
+input:disabled, select:disabled { background: #f2f5f3; color: #64756d; cursor: not-allowed; }
+.admin-dialog { color: #1c2d3a; border: 1px solid #dbe5e0; border-radius: 14px; padding: 28px; width: min(570px, calc(100% - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; box-shadow: 0 20px 70px #112f3329; }
+.admin-dialog::backdrop { background: #102c36a3; }
+.dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; }
+.dialog-heading h2 { margin: 0; }
+.dialog-heading button { padding: 3px 9px; font-size: 1.4rem; line-height: 1.2; border: 0; color: #69827a; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid label { display: block; }
+.form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; border-top: 1px solid #e5ece8; margin-top: 10px; }
+.form-help { color: #75847d; font-size: .77rem; margin: 0 0 20px; }
+.checkbox-label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.checkbox-label input { width: 17px; height: 17px; min-height: 0; margin: 0; accent-color: #216e5c; }
+.filters { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 20px 0; border-bottom: 1px solid #e4ebe6; margin-bottom: 16px; }
+.filters > div { min-width: 130px; flex: 1; }
+.filters .filter-search { min-width: 180px; flex: 1.5; }
+.filters label { display: block; font-size: .72rem; color: #61786b; }
+.filters input, .filters select { margin-bottom: 0; padding: 11px 10px; min-height: 43px; font-size: .8rem; }
+.filters > button { font-size: .75rem; min-height: 43px; }
+.result-count { color: #7c8c83; font-size: .73rem; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.row-actions button { padding: 7px 10px; font-size: .72rem; white-space: nowrap; }
+.access-status { color: #8b7150; font-size: .73rem; white-space: nowrap; }
+.access-ready { color: #367b57; }
+.empty-state { padding: 30px 10px; color: #819087; font-size: .9rem; text-align: center; }
+@media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; gap: 0; } .admin-dialog { padding: 22px; } .panel-heading { flex-wrap: wrap; } .filters > div { min-width: 135px; } .form-actions { flex-wrap: wrap; } }

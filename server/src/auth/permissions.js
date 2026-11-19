@@ -9,6 +9,8 @@ const rolePermissions = {
   Admin: [...common, 'requests:read:all', 'orders:read', 'deliveries:read', 'dashboard:read', 'users:read', 'employees:manage', 'departments:manage'],
 };
 
+export const employeeRoles = Object.freeze(Object.keys(rolePermissions));
+
 export function permissionsFor(role) {
   return [...(Object.hasOwn(rolePermissions, role) ? rolePermissions[role] : [])];
 }
