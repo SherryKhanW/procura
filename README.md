@@ -8,7 +8,7 @@ Workflow: purchase request → approval → purchase order → delivery → invo
 
 Step 1: React/Vite client, Express API, MariaDB connector, database validation command, and clean SQL installation files. Login, permissions, admin pages, and workflow screens are upcoming work; this scaffold does not authenticate users or expose business records.
 
-The backend uses parameterized SQL rather than an ORM so the database implementation stays visible. The existing 16-table design and Milestone 3 procedure/trigger are retained. No database is hosted or provisioned by this commit.
+The backend uses parameterized SQL rather than an ORM so the database implementation stays visible. The existing 16-table design and Milestone 3 procedure/trigger are retained. The shared database is now provisioned on alwaysdata; all 16 tables, seed data, the procedure and trigger are installed. Backend credentials and runtime grants are still pending. See [the hosted setup checkpoint](docs/shared-database.md) for verification results and remaining steps.
 
 ## Local application setup
 
@@ -22,11 +22,11 @@ npm run dev
 
 Open the URL Vite prints (normally http://localhost:5173). The page reports API liveness only. The API listens on http://127.0.0.1:3001/api/health; it can start before database credentials are configured. Vite proxies `/api` to port 3001. If you change the API port, update that proxy as well.
 
-`server/.env` is ignored by Git. Put database credentials there, never in client code or a `VITE_` variable. Use `DB_SSL=true` for a hosted database; set `DB_SSL_CA` if the provider supplies a CA certificate. Certificate verification is always enabled when TLS is enabled. The example `DB_SSL=false` is for a local database.
+`server/.env` is ignored by Git. Put database credentials there, never in client code or a `VITE_` variable. Use `DB_SSL=true` for a hosted database; set `DB_SSL_CA` if the provider supplies a CA certificate. Certificate verification is always enabled when TLS is enabled. Use `DB_SSL=false` only for a separate local database.
 
 ## Database installation
 
-Use MariaDB compatible with our Milestone 3 database (MariaDB 10.4.28), or a MySQL host only after validating compatibility. Before selecting a hosting service, confirm support for stored procedures, triggers, transactions, and database users/privileges. All teammates must connect to one shared hosted database for the final submission.
+The shared service uses MariaDB 11.8.9 on alwaysdata, at `mysql-procura.alwaysdata.net:3306`, database `procura_db`. All teammates must use this shared database. The installation instructions below are for a separate NEW empty database when reproducing setup, not for reimporting the live seed.
 
 Using a database setup account, create a NEW empty database named `procura` with `utf8mb4` encoding. Select that database in phpMyAdmin and import these files in order:
 
