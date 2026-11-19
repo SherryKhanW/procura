@@ -11,6 +11,8 @@ try {
   const tables = await connection.query('SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = ?', ['BASE TABLE']);
   const missing = expected.filter(name => !tables.some(row => row.name === name));
   if (missing.length) throw new Error(`Missing expected tables: ${missing.join(', ')}`);
+  if (!tables.some(row => row.name === 'Login_Session')) throw new Error('Import database/05-auth.sql using the setup account to enable password login and shared sessions.');
+  await connection.query('SELECT PasswordHash FROM Login LIMIT 0');
   // Check the logged-in account's own grants. Never print SHOW GRANTS output:
   // MariaDB may include authentication hashes in its USAGE statement.
   const grants = await connection.query('SHOW GRANTS');
@@ -26,7 +28,8 @@ try {
   if (!routines.length) throw new Error('The approval procedure is missing or not visible to this account. Verify its EXECUTE grant.');
   // Identifiers come only from the static expected list, never from user input.
   for (const table of expected) await connection.query(`SELECT COUNT(*) AS total FROM \`${table}\``);
-  console.log(`Connected${config.sslEnabled ? ' over verified TLS' : ' (local TLS disabled)'}. All 16 tables are readable, the approval procedure is visible, and no direct schema-administration or grant-delegation privileges were found.`);
+  await connection.query('SELECT COUNT(*) AS total FROM Login_Session');
+  console.log(`Connected${config.sslEnabled ? ' over verified TLS' : ' (local TLS disabled)'}. All 16 business tables and the shared session table are readable, the password column and approval procedure are visible, and no direct schema-administration or grant-delegation privileges were found.`);
   console.log('Procedure execution, trigger behavior, and application concurrency require separate integration tests.');
 } catch (error) {
   // Driver messages can include connection details; do not log them.
@@ -39,6 +42,7 @@ try {
     ER_ACCESS_DENIED_ERROR: 'Authentication failed. Verify DB_USER and DB_PASSWORD match the procura_app account.',
     ER_DBACCESS_DENIED_ERROR: 'The account cannot access DB_NAME. Verify the database name and account grants.',
     ER_BAD_DB_ERROR: 'DB_NAME does not exist on this server. Verify it is procura_db.',
+    ER_BAD_FIELD_ERROR: 'The authentication schema may be missing. Import database/05-auth.sql using the setup account.',
     ERR_TLS_CERT_ALTNAME_INVALID: 'TLS certificate hostname validation failed. Verify DB_HOST and the provider certificate; keep certificate verification enabled.',
     CERT_HAS_EXPIRED: 'The TLS certificate has expired. Check the system clock and provider certificate.',
     UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'The TLS certificate chain could not be verified. Configure the provider CA using DB_SSL_CA.',

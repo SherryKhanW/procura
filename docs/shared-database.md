@@ -55,13 +55,14 @@ seed, excluding the additional manual demonstration purchases in COMMANDS.sql.
   it names exactly this database rather than a wildcard pattern.
 - The setup account cannot inspect another user's SHOW GRANTS on this shared
   host (access to the `mysql` system database is denied). The runtime account
-  will verify its own grants through `npm run db:check` after its password is
-  entered privately in `server/.env`.
+  verified its own grants through `npm run db:check`: the user confirmed a
+  successful verified-TLS connection, all 16 tables readable, approval routine
+  visible, and no direct schema-administration or grant-delegation privileges.
 
 Successful manager approval/payment and concurrent-user behavior still need
 application-level integration tests. This checkpoint does not claim them.
 
-## Finish the connection
+## Enable application authentication
 
 1. Account creation and the SQL privileges in `database/04-app-privileges.sql`
    are complete. Do not create the account or re-save panel permissions again.
@@ -70,13 +71,16 @@ application-level integration tests. This checkpoint does not claim them.
    host, port, database, username and TLS settings. Each developer must supply
    the runtime account password in their own ignored environment file.
    Do not commit credentials.
-3. Run `npm run db:check` with the runtime account. This has not yet been run
-   successfully against the hosted service. The diagnostic now uses one direct
-   connection to show the original DNS, network, TLS, or authentication error.
-4. Verify that SELECT works and schema-altering operations are denied to the
-   runtime account, then proceed to password-backed application login.
+3. The pre-authentication database check has passed. Import the new
+   `database/05-auth.sql` as the setup account in phpMyAdmin's selected
+   `procura_db`, then rerun `npm run db:check` for the added session table and
+   password column. This migration has not yet been run on the hosted service.
+4. Follow [password setup and application login](authentication.md), beginning
+   with `npm run auth:set-password` for `sofia.garcia@procura.co`.
 
 Do not re-save panel permissions after applying custom SQL grants: alwaysdata
 can reset those grants to its panel selection. Manage later grants through SQL.
+If panel changes are necessary, reapply both `04-app-privileges.sql` and the
+session grant in `05-auth.sql` afterward.
 
 Reference: https://help.alwaysdata.com/en/docs/web-hosting/databases/mariadb/
