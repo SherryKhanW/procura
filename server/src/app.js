@@ -6,6 +6,8 @@ import { readAppConfig } from './config.js';
 import { createAuth, protectWrites } from './auth/routes.js';
 import { createAdminRouter } from './admin/routes.js';
 import { AdminError } from './admin/validation.js';
+import { createCatalogRouter, createRequestRouter } from './procurement/routes.js';
+import { ProcurementError } from './procurement/validation.js';
 
 export function createApp({ repository, config = readAppConfig() } = {}) {
   if (!repository) throw new Error('An authentication repository is required.');
@@ -25,6 +27,8 @@ export function createApp({ repository, config = readAppConfig() } = {}) {
   // All future business endpoints belong below this authentication guard.
   app.use('/api', auth.requireAuth);
   app.use('/api/admin', createAdminRouter(repository));
+  app.use('/api/catalog', createCatalogRouter(repository));
+  app.use('/api/requests', createRequestRouter(repository));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }));
   const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
   if (existsSync(clientDist)) {
@@ -32,7 +36,7 @@ export function createApp({ repository, config = readAppConfig() } = {}) {
     app.get('/{*path}', (_req, res) => res.sendFile('index.html', { root: clientDist }));
   }
   app.use((error, _req, res, _next) => {
-    if (error instanceof AdminError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof AdminError || error instanceof ProcurementError) return res.status(error.status).json({ error: error.message });
     const badJson = error.type === 'entity.parse.failed';
     const tooLarge = error.type === 'entity.too.large';
     const databaseError = Boolean(error.sqlState || error.errno || ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT'].includes(error.code));
