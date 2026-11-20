@@ -6,7 +6,7 @@ Workflow: purchase request → approval → purchase order → delivery → invo
 
 ## Current checkpoint
 
-Password login, shared database sessions, logout, password changes, server-enforced roles, an authenticated workspace, and Admin employee/department management are implemented. Admins can search/filter employees, create/edit accounts, assign roles/departments, activate/deactivate accounts, set/reset other employees' passwords, and create/rename departments. Procurement workflow modules are upcoming work.
+Password login, shared database sessions, logout, password changes, server-enforced roles, an authenticated workspace, and Admin employee/department management are implemented. Purchasing can manage vendors, products, and supplier listings, including deleting a listing without deleting the vendor or product. Employees can submit purchase requests; managers approve or reject them by calling `sp_decide_purchase_request`. Approved requests stay in the shared database for the purchase-order stage. Orders, deliveries, invoices, and payments are still upcoming.
 
 The backend uses parameterized SQL rather than an ORM so the database implementation stays visible. The existing 16-table design and Milestone 3 procedure/trigger are retained. The shared database is provisioned on alwaysdata with restricted runtime grants. The user confirmed the authentication migration, verified-TLS database check, Admin password provisioning, and successful login. Admin management uses those existing tables/grants; live Admin write checks remain pending. See [Admin management and validation](docs/admin-management.md) and [authentication setup and the role contract](docs/authentication.md).
 

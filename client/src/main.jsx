@@ -3,11 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { api } from './api.js';
 import { Employees } from './admin/Employees.jsx';
 import { Departments } from './admin/Departments.jsx';
+import { Requests } from './procurement/Requests.jsx';
+import { Approvals } from './procurement/Approvals.jsx';
+import { Vendors } from './procurement/Vendors.jsx';
+import { Products } from './procurement/Products.jsx';
 import './styles.css';
-
-function Brand() {
-  return <a className="brand" href="/" aria-label="Procura home"><span className="brand-mark" aria-hidden="true">p</span>procura<span className="brand-dot">.</span></a>;
-}
 
 function SignIn({ onSignIn, notice }) {
   const [email, setEmail] = useState('');
@@ -22,34 +22,16 @@ function SignIn({ onSignIn, notice }) {
     } catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  return <div className="login-layout">
-    <aside className="login-story"><Brand />
-      <div className="story-copy"><p className="eyebrow">A BETTER WAY TO BUY</p><h1>Every purchase.<br />A clear path forward.</h1>
-        <p>Bring your team, suppliers, and purchasing decisions together in one workspace.</p>
-        <div className="journey" aria-label="Procurement workflow"><span>Request</span><i aria-hidden="true">→</i><span>Approve</span><i aria-hidden="true">→</i><span>Deliver</span><i aria-hidden="true">→</i><span>Pay</span></div>
-      </div><p className="story-footer">Procurement & vendor management</p>
-    </aside>
-    <main className="login-main"><div className="login-card"><p className="eyebrow">YOUR TEAM WORKSPACE</p><h2>Welcome back</h2>
-      <p className="muted">Sign in with your Procura employee account.</p>
-      {notice && <p className="notice" role="status">{notice}</p>}
-      <form onSubmit={submit}>
-        <label htmlFor="email">Work email</label><input id="email" type="email" name="email" autoComplete="username" placeholder="you@procura.co" required maxLength={255} value={email} onChange={event => setEmail(event.target.value)} />
-        <label htmlFor="password">Password</label><input id="password" type="password" name="password" autoComplete="current-password" required maxLength={256} value={password} onChange={event => setPassword(event.target.value)} />
-        {error && <p className="error" role="alert">{error}</p>}
-        <button className="primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in →'}</button>
-      </form><p className="login-help">Need access or a password reset? Contact your project administrator.</p>
-    </div><footer>Procura · Intro to Databases · Milestone 4</footer></main>
-  </div>;
+  return <main className="login-page"><h1>Sign in</h1>
+    {notice && <p className="notice" role="status">{notice}</p>}
+    <form onSubmit={submit}>
+      <label htmlFor="email">Email</label><input id="email" type="email" name="email" autoComplete="username" required maxLength={255} value={email} onChange={event => setEmail(event.target.value)} />
+      <label htmlFor="password">Password</label><input id="password" type="password" name="password" autoComplete="current-password" required maxLength={256} value={password} onChange={event => setPassword(event.target.value)} />
+      {error && <p className="error" role="alert">{error}</p>}
+      <button className="primary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+    </form>
+  </main>;
 }
-
-const modules = [
-  { title: 'Purchase requests', permission: 'requests:create', number: '01', text: 'Start a purchase and keep track of your requests.' },
-  { title: 'Approvals', permission: 'requests:approve', number: '02', text: 'Review requests and record purchasing decisions.' },
-  { title: 'Vendors & products', permission: 'catalog:manage', number: '03', text: 'Maintain your supplier catalog and agreed prices.' },
-  { title: 'Purchase orders', permission: 'orders:manage', number: '04', text: 'Turn approved requests into supplier orders.' },
-  { title: 'Deliveries', permission: 'deliveries:manage', number: '05', text: 'Record what arrived against each purchase order.' },
-  { title: 'Invoices & payments', permission: 'invoices:manage', number: '06', text: 'Match invoices to orders and deliveries before payment.' },
-];
 
 function PasswordForm({ onChanged, onExpired }) {
   const [currentPassword, setCurrent] = useState('');
@@ -65,8 +47,8 @@ function PasswordForm({ onChanged, onExpired }) {
     catch (failure) { if (failure.status === 401) onExpired(); else setError(failure.message); }
     finally { setBusy(false); }
   }
-  return <section className="panel account-panel"><p className="eyebrow">YOUR ACCOUNT</p><h2>Change password</h2>
-    <p className="muted">Use 12–128 characters. Changing your password signs you out on every device.</p>
+  return <section className="panel account-panel"><h2>Change password</h2>
+    <p>Use 12–128 characters. This signs you out everywhere.</p>
     <form onSubmit={submit}>
       <label htmlFor="current-password">Current password</label><input id="current-password" autoComplete="current-password" type="password" required maxLength={256} value={currentPassword} onChange={event => setCurrent(event.target.value)} />
       <label htmlFor="new-password">New password</label><input id="new-password" autoComplete="new-password" type="password" required minLength={12} maxLength={256} value={newPassword} onChange={event => setNew(event.target.value)} />
@@ -78,11 +60,12 @@ function PasswordForm({ onChanged, onExpired }) {
 
 function Workspace({ user, onSignedOut, onUserChanged }) {
   const [page, setPage] = useState('overview');
+  const [openRequestId, setOpenRequestId] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const can = permission => user.permissions.includes(permission);
-  const visibleModules = modules.filter(module => can(module.permission));
   const expired = React.useCallback(() => onSignedOut('Your session ended. Please sign in again.'), [onSignedOut]);
+  const clearOpenRequest = React.useCallback(() => setOpenRequestId(null), []);
   const refreshIdentity = React.useCallback(() => api('/auth/me').then(({ user: current }) => onUserChanged(current))
     .catch(failure => { if (failure.status === 401) expired(); }), [onUserChanged, expired]);
   useEffect(() => {
@@ -95,24 +78,27 @@ function Workspace({ user, onSignedOut, onUserChanged }) {
     catch (failure) { setError(failure.message); }
     finally { setBusy(false); }
   }
-  return <div className="workspace-layout"><aside className="sidebar"><Brand /><p className="nav-label">WORKSPACE</p><nav aria-label="Workspace navigation">
-    <button className={page === 'overview' ? 'nav-active' : ''} onClick={() => setPage('overview')}>Overview</button>
+  return <div className="workspace-layout"><aside className="sidebar"><nav aria-label="Pages">
+    <button className={page === 'overview' ? 'nav-active' : ''} onClick={() => setPage('overview')}>Home</button>
+    {can('requests:create') && <button className={page === 'requests' ? 'nav-active' : ''} onClick={() => setPage('requests')}>Purchase requests</button>}
+    {can('requests:approve') && <button className={page === 'approvals' ? 'nav-active' : ''} onClick={() => setPage('approvals')}>Approvals</button>}
+    {can('catalog:manage') && <button className={page === 'vendors' ? 'nav-active' : ''} onClick={() => setPage('vendors')}>Vendors</button>}
+    {can('catalog:manage') && <button className={page === 'products' ? 'nav-active' : ''} onClick={() => setPage('products')}>Products</button>}
     {can('employees:manage') && <button className={page === 'team' ? 'nav-active' : ''} onClick={() => setPage('team')}>Employees & access</button>}
     {can('departments:manage') && <button className={page === 'departments' ? 'nav-active' : ''} onClick={() => setPage('departments')}>Departments</button>}
     <button className={page === 'account' ? 'nav-active' : ''} onClick={() => setPage('account')}>Your account</button>
-    </nav><div className="sidebar-bottom"><span className="avatar">{user.firstName[0]}{user.lastName[0]}</span><div><strong>{user.firstName} {user.lastName}</strong><small>{user.role}</small></div></div>
+    </nav><p className="sidebar-bottom">{user.firstName} {user.lastName}<br />{user.role}</p>
   </aside><div className="workspace-main"><header className="workspace-header"><span>{user.departmentName}</span><button disabled={busy} onClick={logout}>{busy ? 'Signing out…' : 'Sign out'}</button></header>
     <main className="workspace-content">{error && <p className="error" role="alert">{error}</p>}
-      {page === 'overview' && <><div className="welcome"><p className="eyebrow">YOUR PROCUREMENT WORKSPACE</p><h1>Hello, {user.firstName}.</h1><p className="muted">A clear view of your role and the work ahead.</p></div>
-        <section className="identity-card"><div><span className="tag">{user.role}</span><h2>You’re connected to your team.</h2><p>Signed in as <strong>{user.email}</strong></p></div><div className="identity-detail"><span>DEPARTMENT</span><strong>{user.departmentName}</strong></div></section>
-        <div className="section-title"><h2>Your work areas</h2><span className="muted">Based on your role</span></div>
-        <div className="module-grid">{visibleModules.map(module => <article className="module-card" key={module.title}><div className="module-top"><span className="module-number">{module.number}</span><span className="coming-soon">Coming next</span></div><h3>{module.title}</h3><p>{module.text}</p></article>)}</div>
-        <p className="workspace-note">Your account is ready. Procurement modules will become available as your team completes them.</p>
-      </>}
+      {page === 'overview' && <section className="panel"><h1>Home</h1><p>Signed in as {user.email}.</p></section>}
+      {page === 'requests' && can('requests:create') && <Requests user={user} openRequestId={openRequestId} onOpened={clearOpenRequest} onExpired={expired} />}
+      {page === 'approvals' && can('requests:approve') && <Approvals onExpired={expired} onReview={requestId => { setOpenRequestId(requestId); setPage('requests'); }} />}
+      {page === 'vendors' && can('catalog:manage') && <Vendors onExpired={expired} />}
+      {page === 'products' && can('catalog:manage') && <Products onExpired={expired} />}
       {page === 'team' && can('employees:manage') && <Employees user={user} onExpired={expired} onIdentityChanged={refreshIdentity} />}
       {page === 'departments' && can('departments:manage') && <Departments onExpired={expired} />}
       {page === 'account' && <PasswordForm onExpired={expired} onChanged={() => onSignedOut('Password updated. Sign in with your new password.')} />}
-    </main><footer>Procura · Shared procurement workspace</footer>
+    </main>
   </div></div>;
 }
 
@@ -130,8 +116,8 @@ function App() {
     return () => controller.abort();
   }, [attempt]);
   const signedOut = React.useCallback(message => { setUser(null); setNotice(message); }, []);
-  if (loading) return <main className="loading"><Brand /><p role="status">Opening your workspace…</p></main>;
-  if (error) return <main className="loading"><Brand /><h1>We couldn’t open your workspace.</h1><p className="error" role="alert">{error}</p><button className="primary" onClick={() => setAttempt(value => value + 1)}>Try again</button></main>;
+  if (loading) return <main className="loading"><p role="status">Loading…</p></main>;
+  if (error) return <main className="loading"><p className="error" role="alert">{error}</p><button className="primary" onClick={() => setAttempt(value => value + 1)}>Try again</button></main>;
   return user ? <Workspace user={user} onSignedOut={signedOut} onUserChanged={setUser} /> : <SignIn onSignIn={setUser} notice={notice} />;
 }
 
