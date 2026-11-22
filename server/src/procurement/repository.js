@@ -133,14 +133,23 @@ export function createProcurementRepository(pool) {
       } catch (error) { throw mapDatabaseError(error, 'This vendor already supplies that product.'); }
     },
 
+    // Locks the listing, then updates it. A row deleted by someone else is not reported as saved.
     async updateListing(vendorId, productId, input) {
-      const existing = await pool.query('SELECT ProductID FROM Vendor_Product WHERE VendorID = ? AND ProductID = ?', [vendorId, productId]);
-      if (!existing.length) throw new ProcurementError(404, 'Supplier listing not found.');
+      const connection = await pool.getConnection();
       try {
-        await pool.query(`UPDATE Vendor_Product SET VendorSKU = ?, AgreedUnitPrice = ?, LeadTimeDays = ?
+        await connection.beginTransaction();
+        const existing = await connection.query('SELECT ProductID FROM Vendor_Product WHERE VendorID = ? AND ProductID = ? FOR UPDATE', [vendorId, productId]);
+        if (!existing.length) throw new ProcurementError(404, 'Supplier listing not found.');
+        await connection.query(`UPDATE Vendor_Product SET VendorSKU = ?, AgreedUnitPrice = ?, LeadTimeDays = ?
           WHERE VendorID = ? AND ProductID = ?`, [input.vendorSku, input.agreedUnitPrice, input.leadTimeDays, vendorId, productId]);
+        await connection.commit();
         return { vendorId, productId };
-      } catch (error) { throw mapDatabaseError(error); }
+      } catch (error) {
+        await connection.rollback();
+        throw mapDatabaseError(error);
+      } finally {
+        connection.release();
+      }
     },
 
     // Removes only the vendor-product row. Vendor, product, and old order prices stay.

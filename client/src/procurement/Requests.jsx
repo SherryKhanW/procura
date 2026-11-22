@@ -60,7 +60,7 @@ function RequestForm({ user, products, onCancel, onCreated, onExpired }) {
 }
 
 // Request details. Managers approve or reject through the stored procedure.
-function RequestDetail({ requestId, user, onBack, onExpired }) {
+function RequestDetail({ requestId, user, onBack, onChanged, onExpired }) {
   const detail = useAdminData(`/requests/${requestId}`, onExpired);
   const [comments, setComments] = useState('');
   const [busy, setBusy] = useState(false);
@@ -73,7 +73,7 @@ function RequestDetail({ requestId, user, onBack, onExpired }) {
     try {
       await api(`/requests/${requestId}/decision`, { method: 'POST', body: { decision, comments } });
       setNotice(`Request ${decision.toLowerCase()}. The approval procedure saved the decision and the new status together.`);
-      setComments(''); detail.reload();
+      setComments(''); detail.reload(); onChanged();
     } catch (failure) { if (failure.status === 401) onExpired(); else setError(failure.message); }
     finally { setBusy(false); }
   }
@@ -117,8 +117,9 @@ export function Requests({ user, openRequestId, onOpened, onExpired }) {
     setView({ name: 'detail', id: openRequestId });
     onOpened();
   }, [openRequestId, onOpened]);
-  if (view.name === 'new') return <RequestForm user={user} products={catalog.data?.products ?? []} onExpired={onExpired} onCancel={() => setView({ name: 'list' })} onCreated={requestId => setView({ name: 'detail', id: requestId })} />;
-  if (view.name === 'detail') return <RequestDetail requestId={view.id} user={user} onExpired={onExpired} onBack={() => setView({ name: 'list' })} />;
+  const showList = () => { list.reload(); setView({ name: 'list' }); };
+  if (view.name === 'new') return <RequestForm user={user} products={catalog.data?.products ?? []} onExpired={onExpired} onCancel={showList} onCreated={requestId => { list.reload(); setView({ name: 'detail', id: requestId }); }} />;
+  if (view.name === 'detail') return <RequestDetail requestId={view.id} user={user} onExpired={onExpired} onChanged={() => list.reload()} onBack={showList} />;
   const requests = list.data?.requests ?? [];
   return <section className="panel"><div className="panel-heading"><h2>{seeAll ? 'Purchase requests' : 'Your purchase requests'}</h2><button className="primary" onClick={() => setView({ name: 'new' })}>New request</button></div>
     <p>{seeAll ? 'All requests.' : 'Requests you submitted.'}</p>

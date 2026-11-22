@@ -11,12 +11,13 @@ const people = {
 };
 
 // Scripted driver for the catalog and request SQL. It does not open MariaDB.
-function database({ failItems = false } = {}) {
+function database({ failItems = false, missingListing = false } = {}) {
   const events = []; const queries = [];
   const connection = {
     async beginTransaction() { events.push('begin'); },
     async query(sql, params = []) {
       queries.push({ sql, params });
+      if (sql.startsWith('SELECT ProductID FROM Vendor_Product')) return missingListing ? [] : [{ productId: params[1] }];
       if (sql.startsWith('SELECT ProductID AS productId')) return params.map(productId => ({ productId }));
       if (sql.startsWith('INSERT INTO Purchase_Request (')) return { insertId: 16n };
       if (sql.startsWith('INSERT INTO Purchase_Request_Item') && failItems) throw new Error('simulated item failure');
@@ -35,7 +36,6 @@ function database({ failItems = false } = {}) {
       if (sql.startsWith('INSERT INTO Product')) return { insertId: 11n };
       if (sql.startsWith('INSERT INTO Vendor (')) return { insertId: 11n };
       if (sql.startsWith('DELETE FROM Vendor_Product')) return { affectedRows: 1 };
-      if (sql.startsWith('SELECT ProductID FROM Vendor_Product')) return [{ productId: params[1] }];
       if (sql.startsWith('SELECT VendorID FROM Vendor') || sql.startsWith('SELECT ProductID FROM Product')) return [{ id: params[0] }];
       if (sql.startsWith('SELECT DISTINCT Category')) return [{ category: 'Accessories' }];
       if (sql.includes('AS numberOfVendors')) return [{ productId: 3, productName: 'Wireless Keyboard', description: 'Keyboard', category: 'Accessories', numberOfVendors: 1n }];
@@ -146,6 +146,15 @@ test('purchasing can add catalog rows and delete only a supplier listing', async
   assert.equal(deleted.sql, 'DELETE FROM Vendor_Product WHERE VendorID = ? AND ProductID = ?');
   assert.deepEqual(deleted.params, [11, 3]);
   assert.equal(queries.some(query => /DELETE FROM Vendor\b|DELETE FROM Product\b/.test(query.sql)), false);
+});
+
+test('updating a listing another user already deleted is not reported as saved', async t => {
+  const { request, queries, events } = await fixture(t, 'Purchasing', { missingListing: true });
+  const saved = await request('/catalog/vendors/11/listings/3', { method: 'PUT', body: { vendorSku: 'LAMP-01', agreedUnitPrice: '25.00', leadTimeDays: 4 } });
+  assert.equal(saved.status, 404);
+  assert.deepEqual(await saved.json(), { error: 'Supplier listing not found.' });
+  assert.match(queries.find(query => query.sql.includes('FOR UPDATE')).sql, /SELECT ProductID FROM Vendor_Product/);
+  assert.deepEqual(events, ['begin', 'rollback', 'release']);
 });
 
 test('a failed request item rolls the new request back', async () => {
