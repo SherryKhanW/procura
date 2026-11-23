@@ -48,10 +48,11 @@ provision other employees through [Employees & access](admin-management.md).
 Other seeded employees also work after their individual password is set.
 An active Login record, configured password, and recognized role are required.
 Admin is not a universal business-role override. In particular, only Manager
-has approval permission, matching `sp_decide_purchase_request`. This checkpoint
-implements authentication, account password changes, and Admin employee and
-department management. Procurement permissions remain a handoff contract for
-the upcoming owners' workflow screens and endpoints.
+has approval permission, matching `sp_decide_purchase_request`. Catalog changes
+require Purchasing's `catalog:manage` permission. Employees only receive
+purchase requests they submitted; Manager, Purchasing, and Admin can read every
+request. Approval still passes the signed-in manager id into the existing
+procedure, which updates `Approval` and `Purchase_Request.Status` together.
 
 ## API contract
 
@@ -66,6 +67,18 @@ the upcoming owners' workflow screens and endpoints.
 
 Employee/password and department write endpoints are documented in the
 [Admin management guide](admin-management.md).
+
+| Method | Path | Requirement / result |
+| --- | --- | --- |
+| GET | `/api/catalog/products` | `catalog:read`; search and category filter |
+| POST/PUT | `/api/catalog/products` | `catalog:manage`; no price column |
+| GET/POST/PUT | `/api/catalog/vendors` | `catalog:manage` |
+| POST/PUT/DELETE | `/api/catalog/vendors/:id/listings/:productId` | `catalog:manage`; DELETE removes only `Vendor_Product` |
+| GET | `/api/requests` | Own requests, or all requests when `requests:read:all`; search and status filter |
+| POST | `/api/requests` | `requests:create`; signed-in employee, status Pending, items in one transaction |
+| GET | `/api/requests/queue` | `requests:approve`; pending requests only |
+| GET | `/api/requests/:id` | Same visibility as the list, plus items and the approval row |
+| POST | `/api/requests/:id/decision` | `requests:approve`; `CALL sp_decide_purchase_request` |
 
 Write calls require `X-Procura-Request: 1`. The frontend API helper supplies it.
 Any supplied `Origin` must match `APP_ORIGIN`; the API grants no cross-origin

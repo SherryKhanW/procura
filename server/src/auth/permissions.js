@@ -28,10 +28,23 @@ export function publicUser(record) {
   };
 }
 
+function denyUnless(req, res, allowed) {
+  if (!req.user) return res.status(401).json({ error: 'Sign in to continue.' });
+  if (!allowed) return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+  return null;
+}
+
 export function requirePermission(permission) {
   return (req, res, next) => {
-    if (!req.user) return res.status(401).json({ error: 'Sign in to continue.' });
-    if (!req.user.permissions.includes(permission)) return res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    if (denyUnless(req, res, req.user?.permissions.includes(permission))) return;
+    next();
+  };
+}
+
+// Lets a route accept either "my own rows" or "every row" without granting both.
+export function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (denyUnless(req, res, permissions.some(permission => req.user?.permissions.includes(permission)))) return;
     next();
   };
 }
