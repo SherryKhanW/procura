@@ -5,6 +5,7 @@ export class ProcurementError extends Error {
 const requestStatuses = ['Pending', 'Approved', 'Rejected'];
 const vendorStatuses = ['Active', 'Inactive'];
 const decisions = ['Approved', 'Rejected'];
+const orderStatuses = ['Open', 'Partially Received', 'Received', 'Invoiced', 'Closed'];
 
 // Rejects missing, zero, and oversized ids before they reach SQL.
 export function recordId(value) {
@@ -59,6 +60,13 @@ function quantity(value) {
   if (!Number.isInteger(value) || value < 1 || value > 1000000) {
     throw new ProcurementError(400, 'Quantity must be a whole number greater than zero.');
   }
+  return value;
+}
+
+function date(value, label) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ProcurementError(400, `${label} must be a valid date.`);
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new ProcurementError(400, `${label} must be a valid date.`);
   return value;
 }
 
@@ -147,4 +155,32 @@ export function requestInput(body) {
 export function decisionInput(body) {
   if (!decisions.includes(body?.decision)) throw new ProcurementError(400, 'Decision must be Approved or Rejected.');
   return { decision: body.decision, comments: note(body?.comments, 'Comments', 1000) };
+}
+
+export function orderFilters(query) {
+  return { search: searchText(query?.search), status: choice(query?.status, orderStatuses, 'order status') };
+}
+
+export function deliveryFilters(query) {
+  return { search: searchText(query?.search) };
+}
+
+// The request's approved product set is enforced again inside the transaction.
+export function orderInput(body) {
+  if (!Array.isArray(body?.items) || body.items.length < 1 || body.items.length > 20) throw new ProcurementError(400, 'Add between 1 and 20 order items.');
+  const items = body.items.map(item => ({
+    productId: recordId(item?.productId), quantity: quantity(item?.quantity), unitPrice: money(item?.unitPrice, 'Unit price'),
+  }));
+  if (new Set(items.map(item => item.productId)).size !== items.length) throw new ProcurementError(400, 'Each product can only appear once on an order.');
+  const orderDate = date(body?.orderDate, 'Order date');
+  const expectedDeliveryDate = date(body?.expectedDeliveryDate, 'Expected delivery date');
+  if (expectedDeliveryDate < orderDate) throw new ProcurementError(400, 'Expected delivery date cannot be before the order date.');
+  return { requestId: recordId(body?.requestId), vendorId: recordId(body?.vendorId), orderDate, expectedDeliveryDate, items };
+}
+
+export function deliveryInput(body) {
+  if (!Array.isArray(body?.items) || body.items.length < 1 || body.items.length > 50) throw new ProcurementError(400, 'Add between 1 and 50 delivery items.');
+  const items = body.items.map(item => ({ poItemId: recordId(item?.poItemId), quantity: quantity(item?.quantity) }));
+  if (new Set(items.map(item => item.poItemId)).size !== items.length) throw new ProcurementError(400, 'Each order item can appear only once in a delivery.');
+  return { deliveryDate: date(body?.deliveryDate, 'Delivery date'), items };
 }
