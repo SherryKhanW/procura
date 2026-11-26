@@ -257,5 +257,218 @@ export function createProcurementRepository(pool) {
         return { requestId, decision: input.decision };
       } catch (error) { throw mapDatabaseError(error); }
     },
+
+    async listOrderableRequests() {
+      const rows = await pool.query(`SELECT pr.RequestID AS requestId, CONCAT(e.FirstName, ' ', e.LastName) AS requester,
+        DATE_FORMAT(pr.RequestDate, '%Y-%m-%d') AS requestDate, COUNT(pri.ProductID) AS numberOfItems
+        FROM Purchase_Request AS pr INNER JOIN Employee AS e ON e.EmployeeID = pr.EmployeeID
+        INNER JOIN Purchase_Request_Item AS pri ON pri.RequestID = pr.RequestID
+        LEFT JOIN Purchase_Order AS po ON po.RequestID = pr.RequestID
+        WHERE pr.Status = 'Approved' AND po.POID IS NULL
+        GROUP BY pr.RequestID, e.FirstName, e.LastName, DATE_FORMAT(pr.RequestDate, '%Y-%m-%d')
+        ORDER BY pr.RequestDate, pr.RequestID`);
+      return rows.map(row => ({ ...row, numberOfItems: count(row.numberOfItems) }));
+    },
+
+    // A vendor is eligible only when it is Active and supplies every requested product.
+    async getOrderDraft(requestId) {
+      const requests = await pool.query(`SELECT pr.RequestID AS requestId, CONCAT(e.FirstName, ' ', e.LastName) AS requester,
+        DATE_FORMAT(pr.RequestDate, '%Y-%m-%d') AS requestDate, pr.Justification AS justification
+        FROM Purchase_Request AS pr INNER JOIN Employee AS e ON e.EmployeeID = pr.EmployeeID
+        LEFT JOIN Purchase_Order AS po ON po.RequestID = pr.RequestID
+        WHERE pr.RequestID = ? AND pr.Status = 'Approved' AND po.POID IS NULL`, [requestId]);
+      if (!requests.length) throw new ProcurementError(404, 'Approved purchase request available for ordering not found.');
+      const items = await pool.query(`SELECT pri.ProductID AS productId, p.ProductName AS productName,
+        pri.QuantityRequested AS quantityRequested, pri.EstimatedUnitPrice AS estimatedUnitPrice
+        FROM Purchase_Request_Item AS pri INNER JOIN Product AS p ON p.ProductID = pri.ProductID
+        WHERE pri.RequestID = ? ORDER BY p.ProductName, p.ProductID`, [requestId]);
+      const vendors = await pool.query(`SELECT v.VendorID AS vendorId, v.VendorName AS vendorName
+        FROM Vendor AS v WHERE v.Status = 'Active' AND NOT EXISTS (
+          SELECT 1 FROM Purchase_Request_Item AS pri WHERE pri.RequestID = ? AND NOT EXISTS (
+            SELECT 1 FROM Vendor_Product AS vp WHERE vp.VendorID = v.VendorID AND vp.ProductID = pri.ProductID
+          )
+        ) ORDER BY v.VendorName, v.VendorID`, [requestId]);
+      const prices = await pool.query(`SELECT vp.VendorID AS vendorId, vp.ProductID AS productId,
+        vp.AgreedUnitPrice AS agreedUnitPrice, vp.LeadTimeDays AS leadTimeDays
+        FROM Vendor_Product AS vp INNER JOIN Purchase_Request_Item AS pri ON pri.ProductID = vp.ProductID
+        WHERE pri.RequestID = ?`, [requestId]);
+      return {
+        request: requests[0],
+        items: items.map(row => ({ ...row, quantityRequested: count(row.quantityRequested), estimatedUnitPrice: money(row.estimatedUnitPrice) })),
+        vendors,
+        prices: prices.map(row => ({ ...row, vendorId: count(row.vendorId), productId: count(row.productId), agreedUnitPrice: money(row.agreedUnitPrice), leadTimeDays: count(row.leadTimeDays) })),
+      };
+    },
+
+    // Rechecks approval, uniqueness, active supplier coverage, and every line while the request is locked.
+    async createOrder(input) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const requests = await connection.query('SELECT Status FROM Purchase_Request WHERE RequestID = ? FOR UPDATE', [input.requestId]);
+        if (!requests.length || requests[0].Status !== 'Approved') throw new ProcurementError(409, 'Only an approved request can become a purchase order.');
+        const existing = await connection.query('SELECT POID FROM Purchase_Order WHERE RequestID = ? FOR UPDATE', [input.requestId]);
+        if (existing.length) throw new ProcurementError(409, 'This request already has a purchase order.');
+        const requested = await connection.query('SELECT ProductID AS productId FROM Purchase_Request_Item WHERE RequestID = ? ORDER BY ProductID', [input.requestId]);
+        const productIds = requested.map(row => count(row.productId));
+        const submittedIds = input.items.map(item => item.productId).sort((a, b) => a - b);
+        if (productIds.length !== submittedIds.length || productIds.some((id, index) => id !== submittedIds[index])) {
+          throw new ProcurementError(400, 'An order must contain each product from the approved request exactly once.');
+        }
+        const vendors = await connection.query('SELECT VendorID FROM Vendor WHERE VendorID = ? AND Status = \'Active\' FOR UPDATE', [input.vendorId]);
+        if (!vendors.length) throw new ProcurementError(400, 'Choose an active vendor.');
+        const listings = await connection.query(`SELECT ProductID AS productId FROM Vendor_Product
+          WHERE VendorID = ? AND ProductID IN (${productIds.map(() => '?').join(',')}) FOR UPDATE`, [input.vendorId, ...productIds]);
+        if (listings.length !== productIds.length) throw new ProcurementError(400, 'The selected vendor no longer supplies every requested product.');
+        const header = await connection.query(`INSERT INTO Purchase_Order (RequestID, VendorID, OrderDate, ExpectedDeliveryDate, Status)
+          VALUES (?, ?, ?, ?, 'Open')`, [input.requestId, input.vendorId, input.orderDate, input.expectedDeliveryDate]);
+        const poId = count(header.insertId);
+        for (const item of input.items) {
+          await connection.query(`INSERT INTO Purchase_Order_Item (POID, ProductID, QuantityOrdered, UnitPrice)
+            VALUES (?, ?, ?, ?)`, [poId, item.productId, item.quantity, item.unitPrice]);
+        }
+        await connection.commit();
+        return { poId };
+      } catch (error) {
+        await connection.rollback();
+        throw mapDatabaseError(error, 'This request already has a purchase order.');
+      } finally { connection.release(); }
+    },
+
+    async listOrders({ search = '', status = null } = {}) {
+      const conditions = []; const parameters = [];
+      if (search) {
+        conditions.push("LOCATE(LOWER(?), LOWER(CONCAT(po.POID, ' ', po.RequestID, ' ', v.VendorName))) > 0");
+        parameters.push(search);
+      }
+      if (status) { conditions.push('po.Status = ?'); parameters.push(status); }
+      const rows = await pool.query(`SELECT po.POID AS poId, po.RequestID AS requestId, v.VendorName AS vendorName,
+        DATE_FORMAT(po.OrderDate, '%Y-%m-%d') AS orderDate, DATE_FORMAT(po.ExpectedDeliveryDate, '%Y-%m-%d') AS expectedDeliveryDate,
+        po.Status AS status, COALESCE(SUM(poi.QuantityOrdered * poi.UnitPrice), 0) AS orderTotal
+        FROM Purchase_Order AS po INNER JOIN Vendor AS v ON v.VendorID = po.VendorID
+        LEFT JOIN Purchase_Order_Item AS poi ON poi.POID = po.POID ${where(conditions)}
+        GROUP BY po.POID, po.RequestID, v.VendorName, DATE_FORMAT(po.OrderDate, '%Y-%m-%d'), DATE_FORMAT(po.ExpectedDeliveryDate, '%Y-%m-%d'), po.Status
+        ORDER BY po.OrderDate DESC, po.POID DESC`, parameters);
+      return rows.map(row => ({ ...row, poId: count(row.poId), requestId: count(row.requestId), orderTotal: money(row.orderTotal) }));
+    },
+
+    async getOrder(poId) {
+      const orders = await pool.query(`SELECT po.POID AS poId, po.RequestID AS requestId, v.VendorName AS vendorName,
+        DATE_FORMAT(po.OrderDate, '%Y-%m-%d') AS orderDate, DATE_FORMAT(po.ExpectedDeliveryDate, '%Y-%m-%d') AS expectedDeliveryDate, po.Status AS status
+        FROM Purchase_Order AS po INNER JOIN Vendor AS v ON v.VendorID = po.VendorID WHERE po.POID = ?`, [poId]);
+      if (!orders.length) throw new ProcurementError(404, 'Purchase order not found.');
+      const [items, deliveries, invoices] = await Promise.all([
+        pool.query(`SELECT poi.POItemID AS poItemId, p.ProductName AS productName, poi.QuantityOrdered AS quantityOrdered,
+          poi.UnitPrice AS unitPrice, poi.QuantityOrdered * poi.UnitPrice AS lineTotal, COALESCE(received.totalReceived, 0) AS totalReceived,
+          COALESCE(ii.QuantityInvoiced, 0) AS quantityInvoiced
+          FROM Purchase_Order_Item AS poi INNER JOIN Product AS p ON p.ProductID = poi.ProductID
+          LEFT JOIN (SELECT POItemID, SUM(QuantityReceived) AS totalReceived FROM Delivery_Item GROUP BY POItemID) AS received ON received.POItemID = poi.POItemID
+          LEFT JOIN Invoice_Item AS ii ON ii.POItemID = poi.POItemID WHERE poi.POID = ? ORDER BY p.ProductName, poi.POItemID`, [poId]),
+        pool.query(`SELECT DISTINCT d.DeliveryID AS deliveryId, DATE_FORMAT(d.DeliveryDate, '%Y-%m-%d') AS deliveryDate, d.Status AS status
+          FROM Delivery AS d INNER JOIN Delivery_Item AS di ON di.DeliveryID = d.DeliveryID INNER JOIN Purchase_Order_Item AS poi ON poi.POItemID = di.POItemID
+          WHERE poi.POID = ? ORDER BY d.DeliveryDate DESC, d.DeliveryID DESC`, [poId]),
+        pool.query(`SELECT InvoiceID AS invoiceId, InvoiceNumber AS invoiceNumber, Status AS status FROM Invoice WHERE POID = ?`, [poId]),
+      ]);
+      return { order: orders[0], items: items.map(row => ({ ...row, poItemId: count(row.poItemId), quantityOrdered: count(row.quantityOrdered), totalReceived: count(row.totalReceived), quantityInvoiced: count(row.quantityInvoiced), unitPrice: money(row.unitPrice), lineTotal: money(row.lineTotal) })), deliveries: deliveries.map(row => ({ ...row, deliveryId: count(row.deliveryId) })), invoice: invoices[0] ?? null };
+    },
+
+    async listOutstandingOrders() {
+      const rows = await pool.query(`SELECT DISTINCT po.POID AS poId, v.VendorName AS vendorName, po.Status AS status
+        FROM Purchase_Order AS po INNER JOIN Vendor AS v ON v.VendorID = po.VendorID INNER JOIN Purchase_Order_Item AS poi ON poi.POID = po.POID
+        LEFT JOIN (SELECT POItemID, SUM(QuantityReceived) AS totalReceived FROM Delivery_Item GROUP BY POItemID) AS received ON received.POItemID = poi.POItemID
+        WHERE poi.QuantityOrdered > COALESCE(received.totalReceived, 0) AND po.Status NOT IN ('Invoiced', 'Closed') ORDER BY po.POID`);
+      return rows.map(row => ({ ...row, poId: count(row.poId) }));
+    },
+
+    async getOutstandingOrder(poId) {
+      const orders = await pool.query(`SELECT po.POID AS poId, v.VendorName AS vendorName, po.Status AS status FROM Purchase_Order AS po
+        INNER JOIN Vendor AS v ON v.VendorID = po.VendorID WHERE po.POID = ? AND po.Status NOT IN ('Invoiced', 'Closed')`, [poId]);
+      if (!orders.length) throw new ProcurementError(404, 'Order available for receiving not found.');
+      const items = await pool.query(`SELECT poi.POItemID AS poItemId, p.ProductName AS productName, poi.QuantityOrdered AS quantityOrdered,
+        COALESCE(SUM(di.QuantityReceived), 0) AS alreadyReceived, poi.QuantityOrdered - COALESCE(SUM(di.QuantityReceived), 0) AS remainingQuantity
+        FROM Purchase_Order_Item AS poi INNER JOIN Product AS p ON p.ProductID = poi.ProductID LEFT JOIN Delivery_Item AS di ON di.POItemID = poi.POItemID
+        WHERE poi.POID = ? GROUP BY poi.POItemID, p.ProductName, poi.QuantityOrdered HAVING remainingQuantity > 0 ORDER BY p.ProductName, poi.POItemID`, [poId]);
+      return { order: orders[0], items: items.map(row => ({ ...row, poItemId: count(row.poItemId), quantityOrdered: count(row.quantityOrdered), alreadyReceived: count(row.alreadyReceived), remainingQuantity: count(row.remainingQuantity) })) };
+    },
+
+    async recordDelivery(employeeId, input) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const itemIds = [...new Set(input.items.map(item => item.poItemId))].sort((a, b) => a - b);
+        if (itemIds.length !== input.items.length) throw new ProcurementError(400, 'Each order item can appear only once in a delivery.');
+        const targets = await connection.query(`SELECT POItemID AS poItemId, POID AS poId
+          FROM Purchase_Order_Item WHERE POItemID IN (${itemIds.map(() => '?').join(',')})
+          ORDER BY POID, POItemID`, itemIds);
+        if (targets.length !== itemIds.length) throw new ProcurementError(400, 'Choose valid order items to receive.');
+
+        // Lock every affected order first, in a stable order. All delivery writers use
+        // this lock before reading totals, so overlapping consolidated deliveries serialize.
+        const poIds = [...new Set(targets.map(row => count(row.poId)))].sort((a, b) => a - b);
+        const orders = await connection.query(`SELECT POID AS poId, Status AS orderStatus
+          FROM Purchase_Order WHERE POID IN (${poIds.map(() => '?').join(',')})
+          ORDER BY POID FOR UPDATE`, poIds);
+        if (orders.length !== poIds.length) throw new ProcurementError(400, 'Choose valid purchase orders to receive.');
+        const statusByPo = new Map(orders.map(row => [count(row.poId), row.orderStatus]));
+
+        const allItems = await connection.query(`SELECT POItemID AS poItemId, POID AS poId, QuantityOrdered AS quantityOrdered
+          FROM Purchase_Order_Item WHERE POID IN (${poIds.map(() => '?').join(',')})
+          ORDER BY POID, POItemID FOR UPDATE`, poIds);
+        const allItemIds = allItems.map(row => count(row.poItemId));
+        const receivedRows = await connection.query(`SELECT POItemID AS poItemId, QuantityReceived AS quantityReceived
+          FROM Delivery_Item WHERE POItemID IN (${allItemIds.map(() => '?').join(',')})
+          ORDER BY POItemID, DeliveryItemID FOR UPDATE`, allItemIds);
+        const receivedByItem = new Map(allItemIds.map(poItemId => [poItemId, 0]));
+        for (const row of receivedRows) {
+          const poItemId = count(row.poItemId);
+          receivedByItem.set(poItemId, receivedByItem.get(poItemId) + count(row.quantityReceived));
+        }
+        const byId = new Map(allItems.map(row => [count(row.poItemId), row]));
+        for (const item of input.items) {
+          const row = byId.get(item.poItemId);
+          if (!row) throw new ProcurementError(400, 'Choose valid order items to receive.');
+          if (['Invoiced', 'Closed'].includes(statusByPo.get(count(row.poId)))) throw new ProcurementError(409, 'Goods cannot be received against an invoiced or closed order.');
+          if (receivedByItem.get(item.poItemId) + item.quantity > count(row.quantityOrdered)) throw new ProcurementError(400, 'Received quantity cannot exceed the quantity ordered.');
+        }
+        const header = await connection.query(`INSERT INTO Delivery (DeliveryDate, EmployeeID, Status) VALUES (?, ?, 'Received')`, [input.deliveryDate, employeeId]);
+        const deliveryId = count(header.insertId);
+        for (const item of input.items) {
+          await connection.query('INSERT INTO Delivery_Item (DeliveryID, POItemID, QuantityReceived) VALUES (?, ?, ?)', [deliveryId, item.poItemId, item.quantity]);
+          receivedByItem.set(item.poItemId, receivedByItem.get(item.poItemId) + item.quantity);
+        }
+        for (const poId of poIds) {
+          const fullyReceived = allItems.filter(row => count(row.poId) === poId)
+            .every(row => receivedByItem.get(count(row.poItemId)) >= count(row.quantityOrdered));
+          await connection.query('UPDATE Purchase_Order SET Status = ? WHERE POID = ?', [fullyReceived ? 'Received' : 'Partially Received', poId]);
+        }
+        await connection.commit();
+        return { deliveryId };
+      } catch (error) {
+        await connection.rollback();
+        throw mapDatabaseError(error);
+      } finally { connection.release(); }
+    },
+
+    async listDeliveries({ search = '' } = {}) {
+      const conditions = []; const parameters = [];
+      if (search) { conditions.push("LOCATE(LOWER(?), LOWER(CONCAT(d.DeliveryID, ' ', e.FirstName, ' ', e.LastName))) > 0"); parameters.push(search); }
+      const rows = await pool.query(`SELECT d.DeliveryID AS deliveryId, DATE_FORMAT(d.DeliveryDate, '%Y-%m-%d') AS deliveryDate,
+        CONCAT(e.FirstName, ' ', e.LastName) AS receivedBy, COUNT(di.DeliveryItemID) AS numberOfItems, d.Status AS status
+        FROM Delivery AS d INNER JOIN Employee AS e ON e.EmployeeID = d.EmployeeID LEFT JOIN Delivery_Item AS di ON di.DeliveryID = d.DeliveryID
+        ${where(conditions)} GROUP BY d.DeliveryID, DATE_FORMAT(d.DeliveryDate, '%Y-%m-%d'), e.FirstName, e.LastName, d.Status
+        ORDER BY d.DeliveryDate DESC, d.DeliveryID DESC`, parameters);
+      return rows.map(row => ({ ...row, deliveryId: count(row.deliveryId), numberOfItems: count(row.numberOfItems) }));
+    },
+
+    async getDelivery(deliveryId) {
+      const deliveries = await pool.query(`SELECT d.DeliveryID AS deliveryId, DATE_FORMAT(d.DeliveryDate, '%Y-%m-%d') AS deliveryDate,
+        CONCAT(e.FirstName, ' ', e.LastName) AS receivedBy, d.Status AS status FROM Delivery AS d INNER JOIN Employee AS e ON e.EmployeeID = d.EmployeeID
+        WHERE d.DeliveryID = ?`, [deliveryId]);
+      if (!deliveries.length) throw new ProcurementError(404, 'Delivery not found.');
+      const items = await pool.query(`SELECT poi.POID AS poId, p.ProductName AS productName, di.QuantityReceived AS quantityReceived
+        FROM Delivery_Item AS di INNER JOIN Purchase_Order_Item AS poi ON poi.POItemID = di.POItemID INNER JOIN Product AS p ON p.ProductID = poi.ProductID
+        WHERE di.DeliveryID = ? ORDER BY poi.POID, p.ProductName`, [deliveryId]);
+      return { delivery: deliveries[0], items: items.map(row => ({ ...row, poId: count(row.poId), quantityReceived: count(row.quantityReceived) })) };
+    },
   };
 }

@@ -7,6 +7,8 @@ import { Requests } from './procurement/Requests.jsx';
 import { Approvals } from './procurement/Approvals.jsx';
 import { Vendors } from './procurement/Vendors.jsx';
 import { Products } from './procurement/Products.jsx';
+import { Orders } from './procurement/Orders.jsx';
+import { Deliveries } from './procurement/Deliveries.jsx';
 import './styles.css';
 
 function SignIn({ onSignIn, notice }) {
@@ -84,6 +86,8 @@ function Workspace({ user, onSignedOut, onUserChanged }) {
     {can('requests:approve') && <button className={page === 'approvals' ? 'nav-active' : ''} onClick={() => setPage('approvals')}>Approvals</button>}
     {can('catalog:manage') && <button className={page === 'vendors' ? 'nav-active' : ''} onClick={() => setPage('vendors')}>Vendors</button>}
     {can('catalog:manage') && <button className={page === 'products' ? 'nav-active' : ''} onClick={() => setPage('products')}>Products</button>}
+    {can('orders:read') && <button className={page === 'orders' ? 'nav-active' : ''} onClick={() => setPage('orders')}>Purchase orders</button>}
+    {can('deliveries:read') && <button className={page === 'deliveries' ? 'nav-active' : ''} onClick={() => setPage('deliveries')}>Deliveries</button>}
     {can('employees:manage') && <button className={page === 'team' ? 'nav-active' : ''} onClick={() => setPage('team')}>Employees & access</button>}
     {can('departments:manage') && <button className={page === 'departments' ? 'nav-active' : ''} onClick={() => setPage('departments')}>Departments</button>}
     <button className={page === 'account' ? 'nav-active' : ''} onClick={() => setPage('account')}>Your account</button>
@@ -95,6 +99,8 @@ function Workspace({ user, onSignedOut, onUserChanged }) {
       {page === 'approvals' && can('requests:approve') && <Approvals onExpired={expired} onReview={requestId => { setOpenRequestId(requestId); setPage('requests'); }} />}
       {page === 'vendors' && can('catalog:manage') && <Vendors onExpired={expired} />}
       {page === 'products' && can('catalog:manage') && <Products onExpired={expired} />}
+      {page === 'orders' && can('orders:read') && <Orders canManage={can('orders:manage')} onExpired={expired} />}
+      {page === 'deliveries' && can('deliveries:read') && <Deliveries canManage={can('deliveries:manage')} onExpired={expired} />}
       {page === 'team' && can('employees:manage') && <Employees user={user} onExpired={expired} onIdentityChanged={refreshIdentity} />}
       {page === 'departments' && can('departments:manage') && <Departments onExpired={expired} />}
       {page === 'account' && <PasswordForm onExpired={expired} onChanged={() => onSignedOut('Password updated. Sign in with your new password.')} />}

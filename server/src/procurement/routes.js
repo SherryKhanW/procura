@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { requireAnyPermission, requirePermission } from '../auth/permissions.js';
 import {
-  decisionInput, listingInput, listingUpdate, productFilters, productInput, recordId, requestFilters, requestInput, vendorFilters, vendorInput,
+  decisionInput, deliveryFilters, deliveryInput, listingInput, listingUpdate, orderFilters, orderInput, productFilters, productInput, recordId,
+  requestFilters, requestInput, vendorFilters, vendorInput,
 } from './validation.js';
 
 // Purchasing catalog: products, vendors, and the supplier prices that can be deleted.
@@ -58,6 +59,48 @@ export function createRequestRouter(repository) {
   });
   router.post('/:id/decision', requirePermission('requests:approve'), async (req, res) => {
     res.json(await repository.decideRequest(req.user.employeeId, recordId(req.params.id), decisionInput(req.body)));
+  });
+  return router;
+}
+
+// Purchasing turns one approved request into one vendor-backed purchase order.
+export function createOrderRouter(repository) {
+  const router = Router();
+  router.get('/', requirePermission('orders:read'), async (req, res) => {
+    res.json({ orders: await repository.listOrders(orderFilters(req.query)) });
+  });
+  router.get('/eligible-requests', requirePermission('orders:manage'), async (_req, res) => {
+    res.json({ requests: await repository.listOrderableRequests() });
+  });
+  router.get('/eligible-requests/:id', requirePermission('orders:manage'), async (req, res) => {
+    res.json(await repository.getOrderDraft(recordId(req.params.id)));
+  });
+  router.get('/:id', requirePermission('orders:read'), async (req, res) => {
+    res.json(await repository.getOrder(recordId(req.params.id)));
+  });
+  router.post('/', requirePermission('orders:manage'), async (req, res) => {
+    res.status(201).json(await repository.createOrder(orderInput(req.body)));
+  });
+  return router;
+}
+
+// Receiving staff record one physical delivery, which may contain lines from multiple orders.
+export function createDeliveryRouter(repository) {
+  const router = Router();
+  router.get('/', requirePermission('deliveries:read'), async (req, res) => {
+    res.json({ deliveries: await repository.listDeliveries(deliveryFilters(req.query)) });
+  });
+  router.get('/outstanding-orders', requirePermission('deliveries:manage'), async (_req, res) => {
+    res.json({ orders: await repository.listOutstandingOrders() });
+  });
+  router.get('/outstanding-orders/:id', requirePermission('deliveries:manage'), async (req, res) => {
+    res.json(await repository.getOutstandingOrder(recordId(req.params.id)));
+  });
+  router.get('/:id', requirePermission('deliveries:read'), async (req, res) => {
+    res.json(await repository.getDelivery(recordId(req.params.id)));
+  });
+  router.post('/', requirePermission('deliveries:manage'), async (req, res) => {
+    res.status(201).json(await repository.recordDelivery(req.user.employeeId, deliveryInput(req.body)));
   });
   return router;
 }

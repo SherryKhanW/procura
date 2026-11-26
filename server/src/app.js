@@ -6,7 +6,7 @@ import { readAppConfig } from './config.js';
 import { createAuth, protectWrites } from './auth/routes.js';
 import { createAdminRouter } from './admin/routes.js';
 import { AdminError } from './admin/validation.js';
-import { createCatalogRouter, createRequestRouter } from './procurement/routes.js';
+import { createCatalogRouter, createDeliveryRouter, createOrderRouter, createRequestRouter } from './procurement/routes.js';
 import { ProcurementError } from './procurement/validation.js';
 
 export function createApp({ repository, config = readAppConfig() } = {}) {
@@ -29,6 +29,8 @@ export function createApp({ repository, config = readAppConfig() } = {}) {
   app.use('/api/admin', createAdminRouter(repository));
   app.use('/api/catalog', createCatalogRouter(repository));
   app.use('/api/requests', createRequestRouter(repository));
+  app.use('/api/orders', createOrderRouter(repository));
+  app.use('/api/deliveries', createDeliveryRouter(repository));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found' }));
   const clientDist = fileURLToPath(new URL('../../client/dist/', import.meta.url));
   if (existsSync(clientDist)) {
