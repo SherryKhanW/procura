@@ -15,7 +15,7 @@ This module implements Omer's Milestone 4 handoff: Purchasing turns an approved 
 
 One delivery can include lines from several POs. Each `Delivery_Item` remains linked to one `Purchase_Order_Item`, preserving traceability.
 
-The delivery transaction locks the selected order items, checks the accumulated received quantity, creates the header and all its lines together, then recomputes every affected PO's receipt state:
+The delivery transaction locks every affected PO in a stable order, locks its item rows, and then performs a current locking read of the related delivery rows. It checks the accumulated received quantity, creates the header and all its lines together, then recomputes every affected PO's receipt state. This ordering serializes overlapping consolidated deliveries before either transaction relies on received totals.
 
 - `Partially Received` when any item still has a remaining quantity.
 - `Received` when every item has been received in full.

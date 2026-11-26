@@ -99,7 +99,7 @@ function Workspace({ user, onSignedOut, onUserChanged }) {
       {page === 'approvals' && can('requests:approve') && <Approvals onExpired={expired} onReview={requestId => { setOpenRequestId(requestId); setPage('requests'); }} />}
       {page === 'vendors' && can('catalog:manage') && <Vendors onExpired={expired} />}
       {page === 'products' && can('catalog:manage') && <Products onExpired={expired} />}
-      {page === 'orders' && can('orders:read') && <Orders onExpired={expired} />}
+      {page === 'orders' && can('orders:read') && <Orders canManage={can('orders:manage')} onExpired={expired} />}
       {page === 'deliveries' && can('deliveries:read') && <Deliveries canManage={can('deliveries:manage')} onExpired={expired} />}
       {page === 'team' && can('employees:manage') && <Employees user={user} onExpired={expired} onIdentityChanged={refreshIdentity} />}
       {page === 'departments' && can('departments:manage') && <Departments onExpired={expired} />}

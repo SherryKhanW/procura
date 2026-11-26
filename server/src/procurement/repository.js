@@ -395,27 +395,50 @@ export function createProcurementRepository(pool) {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const itemIds = input.items.map(item => item.poItemId);
-        const rows = await connection.query(`SELECT poi.POItemID AS poItemId, poi.POID AS poId, poi.QuantityOrdered AS quantityOrdered,
-          po.Status AS orderStatus, COALESCE((SELECT SUM(di.QuantityReceived) FROM Delivery_Item AS di WHERE di.POItemID = poi.POItemID), 0) AS alreadyReceived
-          FROM Purchase_Order_Item AS poi INNER JOIN Purchase_Order AS po ON po.POID = poi.POID
-          WHERE poi.POItemID IN (${itemIds.map(() => '?').join(',')}) FOR UPDATE`, itemIds);
-        if (rows.length !== itemIds.length) throw new ProcurementError(400, 'Choose valid order items to receive.');
-        const byId = new Map(rows.map(row => [count(row.poItemId), row]));
+        const itemIds = [...new Set(input.items.map(item => item.poItemId))].sort((a, b) => a - b);
+        if (itemIds.length !== input.items.length) throw new ProcurementError(400, 'Each order item can appear only once in a delivery.');
+        const targets = await connection.query(`SELECT POItemID AS poItemId, POID AS poId
+          FROM Purchase_Order_Item WHERE POItemID IN (${itemIds.map(() => '?').join(',')})
+          ORDER BY POID, POItemID`, itemIds);
+        if (targets.length !== itemIds.length) throw new ProcurementError(400, 'Choose valid order items to receive.');
+
+        // Lock every affected order first, in a stable order. All delivery writers use
+        // this lock before reading totals, so overlapping consolidated deliveries serialize.
+        const poIds = [...new Set(targets.map(row => count(row.poId)))].sort((a, b) => a - b);
+        const orders = await connection.query(`SELECT POID AS poId, Status AS orderStatus
+          FROM Purchase_Order WHERE POID IN (${poIds.map(() => '?').join(',')})
+          ORDER BY POID FOR UPDATE`, poIds);
+        if (orders.length !== poIds.length) throw new ProcurementError(400, 'Choose valid purchase orders to receive.');
+        const statusByPo = new Map(orders.map(row => [count(row.poId), row.orderStatus]));
+
+        const allItems = await connection.query(`SELECT POItemID AS poItemId, POID AS poId, QuantityOrdered AS quantityOrdered
+          FROM Purchase_Order_Item WHERE POID IN (${poIds.map(() => '?').join(',')})
+          ORDER BY POID, POItemID FOR UPDATE`, poIds);
+        const allItemIds = allItems.map(row => count(row.poItemId));
+        const receivedRows = await connection.query(`SELECT POItemID AS poItemId, QuantityReceived AS quantityReceived
+          FROM Delivery_Item WHERE POItemID IN (${allItemIds.map(() => '?').join(',')})
+          ORDER BY POItemID, DeliveryItemID FOR UPDATE`, allItemIds);
+        const receivedByItem = new Map(allItemIds.map(poItemId => [poItemId, 0]));
+        for (const row of receivedRows) {
+          const poItemId = count(row.poItemId);
+          receivedByItem.set(poItemId, receivedByItem.get(poItemId) + count(row.quantityReceived));
+        }
+        const byId = new Map(allItems.map(row => [count(row.poItemId), row]));
         for (const item of input.items) {
           const row = byId.get(item.poItemId);
-          if (['Invoiced', 'Closed'].includes(row.orderStatus)) throw new ProcurementError(409, 'Goods cannot be received against an invoiced or closed order.');
-          if (count(row.alreadyReceived) + item.quantity > count(row.quantityOrdered)) throw new ProcurementError(400, 'Received quantity cannot exceed the quantity ordered.');
+          if (!row) throw new ProcurementError(400, 'Choose valid order items to receive.');
+          if (['Invoiced', 'Closed'].includes(statusByPo.get(count(row.poId)))) throw new ProcurementError(409, 'Goods cannot be received against an invoiced or closed order.');
+          if (receivedByItem.get(item.poItemId) + item.quantity > count(row.quantityOrdered)) throw new ProcurementError(400, 'Received quantity cannot exceed the quantity ordered.');
         }
         const header = await connection.query(`INSERT INTO Delivery (DeliveryDate, EmployeeID, Status) VALUES (?, ?, 'Received')`, [input.deliveryDate, employeeId]);
         const deliveryId = count(header.insertId);
-        for (const item of input.items) await connection.query('INSERT INTO Delivery_Item (DeliveryID, POItemID, QuantityReceived) VALUES (?, ?, ?)', [deliveryId, item.poItemId, item.quantity]);
-        const poIds = [...new Set(rows.map(row => count(row.poId)))];
+        for (const item of input.items) {
+          await connection.query('INSERT INTO Delivery_Item (DeliveryID, POItemID, QuantityReceived) VALUES (?, ?, ?)', [deliveryId, item.poItemId, item.quantity]);
+          receivedByItem.set(item.poItemId, receivedByItem.get(item.poItemId) + item.quantity);
+        }
         for (const poId of poIds) {
-          const allItems = await connection.query(`SELECT poi.QuantityOrdered AS quantityOrdered,
-            COALESCE((SELECT SUM(di.QuantityReceived) FROM Delivery_Item AS di WHERE di.POItemID = poi.POItemID), 0) AS totalReceived
-            FROM Purchase_Order_Item AS poi WHERE poi.POID = ? FOR UPDATE`, [poId]);
-          const fullyReceived = allItems.every(row => count(row.totalReceived) >= count(row.quantityOrdered));
+          const fullyReceived = allItems.filter(row => count(row.poId) === poId)
+            .every(row => receivedByItem.get(count(row.poItemId)) >= count(row.quantityOrdered));
           await connection.query('UPDATE Purchase_Order SET Status = ? WHERE POID = ?', [fullyReceived ? 'Received' : 'Partially Received', poId]);
         }
         await connection.commit();
